@@ -59,7 +59,36 @@ def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: Mov
     # 3. The duration must be more than 0 and at most limits.duration_max.
     # 4. Too far: speed * duration > limits.distance_max, where speed = (vx**2 + vy**2) ** 0.5.
     # 5. Nothing wrong: return None.
-    return "TODO 2 is not written yet (check_move in lab/part2_walk.py)"
+
+    # 1. Too fast
+    if abs(vx) > limits.vx_max:
+        return f"too fast forward/backward: |vx| must be at most {limits.vx_max} m/s"
+    
+    if abs(vy) > limits.vy_max:
+        return f"too fast sideways: |vy| must be at most {limits.vy_max} m/s"
+    
+    if abs(wz_deg) > limits.wz_max:
+        return f"turning too fast: |wz| must be at most {limits.wz_max} deg/s"
+    
+    # 2. Too slow on all three at once
+    if abs(vx) < limits.vx_min and abs(vy) < limits.vy_min and abs(wz_deg) < limits.wz_min:
+        return (f"too slow to move: use at least |vx|>={limits.vx_min} m/s, |vy|>={limits.vy_min} m/s"
+                f" or |wz|>={limits.wz_min} deg/s")
+    
+    # 3. Duration
+    if duration <= 0 or duration > limits.duration_max:
+        return f"duration must be more than 0 and at most {limits.duration_max} s"
+    
+    # 4. Distance
+    speed = (vx ** 2 + vy ** 2) ** 0.5
+    distance = speed * duration
+    if distance > limits.distance_max:
+        return (f"that would travel {distance:.2f} m, more than {limits.distance_max} m in one move:"
+                f" split it into shorter moves")
+    
+    # 5. Nothing wrong
+    return None
+    # ====================================
     # ====================================
 
 
