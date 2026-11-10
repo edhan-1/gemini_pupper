@@ -74,7 +74,10 @@ async def play_trick(robot: Robot, name: str) -> Result:
 
     note = await prepare_to_move(robot)
 
-    job = lambda: play_policy_trick(robot, trick)
+    if trick.kind == "reference":
+        job = lambda: robot.play_reference_trick(trick)
+    else:
+        job = lambda: play_policy_trick(robot, trick)
 
     if not trick.interactive and trick.end_pose == "standing":
         then = LOCOMOTION
