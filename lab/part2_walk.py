@@ -170,9 +170,9 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 # ========== TODO 3: YOUR CODE HERE ==========
 @tool(
     "turn",
-    "TODO 3: describe the turn tool for Gemini.",
-    direction=Param("string", "TODO 3", enum=["left", "right"]),
-    angle=Param("number", "TODO 3", required=False),
+    "Turns the robot in a direction, left or right, without walking forwards. Use for 'turn around', '180', 'face left', or for turning in a shape." + PREPARES_MOVE,
+    direction=Param("string", "Which direction to turn, left is counter-clockwise and right is clockwise.", enum=["left", "right"]),
+    angle=Param("number", "How far to turn, in degrees (default 90). 90 is a sharp corner, 120 is a triangle, 180 is turning around, and 360 is spinning in a circle.", required=False),
 )
 async def turn_tool(robot: Robot, direction: str, angle: float = 90.0) -> Result:
     # Turn in place: no forward or sideways speed, just a turning speed, for as long
@@ -183,16 +183,36 @@ async def turn_tool(robot: Robot, direction: str, angle: float = 90.0) -> Result
     # 2. How long it takes: seconds = abs(angle) / turn_speed
     #    (90 degrees at 60 deg/s takes 1.5 s)
     # 3. return await walk(robot, 0.0, 0.0, wz_deg, seconds)
-    return not_written("TODO 3", "turn in lab/part2_walk.py")
+    
+    turn_speed = robot.speeds().turn
+
+    if direction == "left":
+        wz_deg = turn_speed
+    else:
+        wz_deg = -turn_speed
+    
+    seconds = abs(angle) / turn_speed
+
+    return await walk(robot, 0.0, 0.0, wz_deg, seconds)
 
 
 @tool(
     "move",
-    "TODO 3: describe the move tool for Gemini.",
-    direction=Param("string", "TODO 3", enum=["forward", "backward", "left", "right"]),
-    run=Param("boolean", "TODO 3", required=False),
-    speed=Param("number", "TODO 3", required=False),
-    duration=Param("number", "TODO 3", required=False),
+    "Walk or run in a direction (forward, backward, or sideways (left/right)) without turning. "
+    "Walking speed is 0.4 m/s by default. Running (forward or backward only) is "
+    f"{RUN_MIN_SPEED}-{LIMITS.vx_max} m/s. Sideways is at most {LIMITS.vy_max} m/s and does not run. "
+    f"One move lasts at most {LIMITS.duration_max} s"
+    f" and travels at most {LIMITS.distance_max} m. Split longer trips into several moves."
+    + PREPARES_MOVE,
+    direction=Param("string", "Which way to go: forward, backward, left (sideways) or right (sideways).", enum=["forward", "backward", "left", "right"]),
+    run=Param("boolean", "true to run (forward or backward only)", required=False),
+    speed=Param("number", "Speed in m/s. Default: 0.4 walking, "
+                f"{RUN_DEFAULT_SPEED} running. Forward/backward at most {LIMITS.vx_max} m/s, "
+                f"sideways at most {LIMITS.vy_max} m/s. A run slower than {RUN_MIN_SPEED} m/s "
+                f"is raised to {RUN_MIN_SPEED}.", required=False),
+    duration=Param("number", "How long to move, in seconds. Default 1.5, at most "
+                   f"{LIMITS.duration_max} s. For a distance, duration = metres / speed "
+                   "(2 m at 0.4 m/s is 5 s).", required=False),
 )
 async def move_tool(
     robot: Robot,
@@ -218,7 +238,32 @@ async def move_tool(
     #      return with_note(note, await walk(robot, vx, vy, 0.0, duration))
     # Examples: move("forward") -> vx 0.4 | move("backward", run=True) -> vx -1.2 |
     #   move("forward", run=True, speed=0.6) -> vx 1.0 | move("right", run=True) -> vy -0.4
-    return not_written("TODO 3", "move in lab/part2_walk.py")
+
+    sideways = (direction == "left" or direction == "right")
+
+    if run and not sideways:
+        if speed is None:
+            speed = RUN_DEFAULT_SPEED
+        else:
+            speed = max(speed, RUN_MIN_SPEED)
+    elif speed is None:
+        speed = robot.speeds().walk
+
+    if direction == "forward":
+        vx = speed
+        vy = 0
+    elif direction == "backward":
+        vx = -speed
+        vy = 0
+    elif direction == "left":
+        vx = 0
+        vy = speed
+    else:
+        vx = 0
+        vy = -speed
+
+    note = "Sideways never runs; walking instead. " if run and sideways else ""
+    return with_note(note, await walk(robot, vx, vy, 0.0, duration)) 
 # ====================================
 
 
@@ -267,11 +312,18 @@ async def move_tool(
 # ========== TODO 4: YOUR CODE HERE ==========
 @tool(
     "arc",
-    "TODO 4: describe the arc tool for Gemini.",
-    direction=Param("string", "TODO 4", enum=["left", "right"]),
-    angle=Param("number", "TODO 4"),
-    radius=Param("number", "TODO 4", required=False),
-    speed=Param("number", "TODO 4", required=False),
+    "Walk forward while turning, along part of a circle. Use for 'walk in a curve', 'walk in a circle'"
+    "('angle 360') and rounded shapes; radius 0 is a sharp corner (turns in place). "
+    f"Pupper turns at most {LIMITS.wz_max} deg/s, so the radius should be at least "
+    f"speed / {math.radians(LIMITS.wz_max):.2f} "
+    f"(about {math.ceil(0.4 / math.radians(LIMITS.wz_max) * 100) / 100} m at 0.4 m/s). "
+    f"One arc goes at most {LIMITS.distance_max} m and lasts at most {LIMITS.duration_max} s."
+    + PREPARES_MOVE,
+    direction=Param("string", "Which way to curve: left (counter-clockwise) or right (clockwise).", enum=["left", "right"]),
+    angle=Param("number", "How much of the circle to walk, in degrees: 90 is a quarter, 180 a half, 360 a full circle."),
+    radius=Param("number", "Radius of the circle in metres (default 0.5). 0 turns in place for a sharp corner.", required=False),
+    speed=Param("number", f"Forward speed in m/s (default 0.4), at most {LIMITS.vx_max}. "
+                "A faster arc needs a bigger radius.", required=False),
 )
 async def arc_tool(
     robot: Robot,
@@ -298,5 +350,36 @@ async def arc_tool(
     # walked a quarter when asked for a circle). The tool registry refuses a call without it.
     # Examples: arc("left", 90) -> vx 0.4, wz +45.8 for 1.96 s |
     #   arc("right", angle=180, radius=1.0, speed=0.6) -> vx 0.6, wz -34.4 for 5.24 s
-    return not_written("TODO 4", "arc in lab/part2_walk.py")
+
+    speeds = robot.speeds()
+    if speed is None:
+        speed = speeds.walk
+
+    if radius < 0:
+        return Result(False, f"no arc: radius must be 0 m or more (got {radius} m)")
+    if speed <= 0:
+        return Result(False, f"no arc: speed must be more than 0 m/s (got {speed} m/s)")
+
+    if radius == 0:
+        if direction == "left":
+            wz_deg = speeds.turn
+        else:
+            wz_deg = -speeds.turn
+        seconds = abs(angle) / speeds.turn
+        return with_note("Radius 0: turned in place (a sharp corner).", await walk(robot, 0.0, 0.0, wz_deg, seconds))
+
+    wz_max = speeds.limits.wz_max
+    if math.degrees(speed / radius) > wz_max:
+        min_radius = math.ceil(speed / math.radians(wz_max) * 100) / 100
+        return Result(False, f"too tight{speeds.where}: at {speed} m/s the radius must be at least {min_radius} m "
+                             f"(turning is at most {wz_max} deg/s); use a bigger radius or a slower speed")
+
+    if direction == "left":
+        wz_deg = math.degrees(speed / radius)
+    else:
+        wz_deg = -math.degrees(speed / radius)
+
+    seconds = abs(angle) / abs(wz_deg)
+
+    return await walk(robot, speed, 0.0, wz_deg, seconds)
 # ====================================
